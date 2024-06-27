@@ -27,6 +27,7 @@ use Yii;
  *                 'class' => 'yii\authclient\clients\LinkedIn',
  *                 'clientId' => 'linkedin_client_id',
  *                 'clientSecret' => 'linkedin_client_secret',
+ *                 'useOpenId' => true,
  *             ],
  *         ],
  *     ]
@@ -64,7 +65,11 @@ class LinkedIn extends OAuth2
         'firstName',
         'lastName',
     ];
-
+    /**
+     * @var bool whether the new OpenId api is to be used. The old version scopes are deprecated. Any new LinkedIn auth app can only use OpenId
+     * @since 2.2.17
+     */
+    public $useOpenId = false;
 
     /**
      * {@inheritdoc}
@@ -73,10 +78,18 @@ class LinkedIn extends OAuth2
     {
         parent::init();
         if ($this->scope === null) {
-            $this->scope = implode(' ', [
+            $scopes = [
                 'r_liteprofile',
                 'r_emailaddress',
-            ]);
+            ];
+            if($this->useOpenId) {
+                $scopes = [
+                    'openid',
+                    'email',
+                    'profile'
+                ];
+            }
+            $this->scope = implode(' ', $scopes);
         }
     }
 
@@ -85,6 +98,20 @@ class LinkedIn extends OAuth2
      */
     protected function defaultNormalizeUserAttributeMap()
     {
+        if($this->useOpenId) {
+            return [
+                'id' => function ($attributes) {
+                    return $attributes['sub'];
+                },
+                'first_name' => function ($attributes) {
+                    return $attributes['given_name'];
+                },
+                'last_name' => function ($attributes) {
+                    return $attributes['family_name'];
+                },
+            ];
+        }
+
         return [
             'first_name' => function ($attributes) {
                 return array_values($attributes['firstName']['localized'])[0];
@@ -100,8 +127,11 @@ class LinkedIn extends OAuth2
      */
     protected function initUserAttributes()
     {
-        $attributes = $this->api('me?projection=(' . implode(',', $this->attributeNames) . ')', 'GET');
+        if($this->useOpenId) {
+            return $this->api('userinfo');
+        }
 
+        $attributes = $this->api('me?projection=(' . implode(',', $this->attributeNames) . ')', 'GET');
         $scopes = explode(' ', $this->scope);
         if (in_array('r_emailaddress', $scopes, true)) {
             $emails = $this->api('emailAddress?q=members&projection=(elements*(handle~))', 'GET');
